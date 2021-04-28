@@ -62,14 +62,15 @@ classdef SignalUtils
         
         function Output = ModMonoSignal(~,Input,InputSR,SrcFreq,DstFreq)
             % Ref freq range
-            FreqBegin = round(0.5+2*size(Input,1)*SrcFreq/InputSR);
+            FreqBegin = round(0.5+2*size(Input,1)*DstFreq/InputSR);
             FreqEnd = round(FreqBegin+0.025*size(Input,1));
             % Src signal power
             SrcAbsSignal = abs(fft(Input));
             SrcPower = mean(SrcAbsSignal(FreqBegin:FreqEnd),'all');
             % Highpass filter
-            [z,p] = butter(3,2*SrcFreq/InputSR,'high');
-            HighSignal = filtfilt(z,p,Input);
+            % [z,p] = butter(3,2*SrcFreq/InputSR,'high');
+            % HighSignal = filtfilt(z,p,Input);
+            HighSignal = Input;
             % Move freq
             MoveRange = round(size(Input,1)*(DstFreq-SrcFreq)/(InputSR/2));
             MoveSignal = circshift(fft(HighSignal),MoveRange);
