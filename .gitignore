@@ -2,3 +2,5 @@
 *.asv
 testbench_EmiyaEngine.m
 audioplugin/
+codegen/
+EmiyaEngine/

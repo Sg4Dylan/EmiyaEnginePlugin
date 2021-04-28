@@ -23,7 +23,7 @@ classdef SignalUtils
             end
             % Prepare channel data
             if size(Input,2) == 2
-                Chan = (Input(:,1) + Input(:,2))/2; % 转换到中置声道
+                Chan = (Input(:,1) + Input(:,2))/2; % Convert to Mid-Side
             else
                 Chan = Input(:,1);
             end
@@ -60,8 +60,27 @@ classdef SignalUtils
             utils.EdgeFreq = ProbFreq;
         end
         
-        function Output = ModMonoSignal(~,Input,InputSR,SrcFreq,DstFreq,MGain)
-            Output = Input;
+        function Output = ModMonoSignal(~,Input,InputSR,SrcFreq,DstFreq)
+            % Ref freq range
+            FreqBegin = round(0.5+2*size(Input,1)*SrcFreq/InputSR);
+            FreqEnd = round(FreqBegin+0.025*size(Input,1));
+            % Src signal power
+            SrcAbsSignal = abs(fft(Input));
+            SrcPower = mean(SrcAbsSignal(FreqBegin:FreqEnd),'all');
+            % Highpass filter
+            [z,p] = butter(3,2*SrcFreq/InputSR,'high');
+            HighSignal = filtfilt(z,p,Input);
+            % Move freq
+            MoveRange = round(size(Input,1)*(DstFreq-SrcFreq)/(InputSR/2));
+            MoveSignal = circshift(fft(HighSignal),MoveRange);
+            MoveSignal(1:round(size(Input,1)*DstFreq/(InputSR/2)-1)) = 0;
+            % Move power
+            MoveAbsSignal = abs(MoveSignal);
+            MovePower = mean(MoveAbsSignal(FreqBegin:FreqEnd),'all');
+            % Calc gain
+            Gain = SrcPower/MovePower;
+            % Output results
+            Output = Gain.*real(ifft(MoveSignal));
         end
     end
     
@@ -87,24 +106,36 @@ classdef SignalUtils
             end
         end
         
-        function Output = CopyBand(utils,Input,InputSR,SrcFreq,DstFreq,MGain)
+        function Output = CopyBand(utils,Input,InputSR,SrcFreq,DstFreq,DynPtc)
+            % Handle error
+            if SrcFreq >= DstFreq || SrcFreq < 1 || DstFreq < 1 || SrcFreq > (InputSR/2) || DstFreq > (InputSR/2)
+                Output = Input;
+                return
+            end
             % Handle Mono/Stereo
             if size(Input,2) == 1
-                Chan = Input(:,1);
+                MidChan = Input(:,1);
             elseif size(Input,2) == 2
-                Chan = (Input(:,1) + Input(:,2))/2; % Convert to Mid-Side
+                MidChan = (Input(:,1) + Input(:,2))/2; % Convert to Mid-Side
+                SideChan = (Input(:,1) - Input(:,2))/2;
             else
                 Output = Input;
                 return
             end
             % Modulation
-            ModOutput = utils.ModMonoSignal(Chan,InputSR,SrcFreq,DstFreq,MGain);
+            ModOutput = utils.ModMonoSignal(MidChan,InputSR,SrcFreq,DstFreq);
+            % Dynamic Protect
+            if DynPtc == true
+                AdpPower = mean(abs(ModOutput),'all');
+                SrcPower = mean(abs(MidChan),'all');
+                SrcF = 1-(AdpPower/SrcPower);
+                MidChan = ModOutput + SrcF.*MidChan;
+            end
             % Return results
             if size(Input,2) == 1
-                Output = ModOutput;
+                Output = MidChan;
             else
-                SideChan = Input(:,1) - Input(:,2);
-                Output = [(ModOutput+SideChan)/2, (ModOutput-SideChan)/2];
+                Output = [MidChan+SideChan, MidChan-SideChan];
             end
         end
         
