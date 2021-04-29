@@ -6,6 +6,8 @@ classdef SignalUtils < handle
         EdgeFreq;
         ChanSum;
         AccCount;
+        ModGain;
+        ModCount;
     end
     
     properties (Constant)
@@ -66,10 +68,10 @@ classdef SignalUtils < handle
             utils.EdgeFreq = NewEdgeFreq;
         end
         
-        function Output = ModMonoSignal(~,Input,InputSR,SrcFreq,DstFreq)
+        function Output = ModMonoSignal(utils,Input,InputSR,SrcFreq,DstFreq)
             % Ref freq range
             FreqBegin = round(0.5+size(Input,1)*DstFreq/InputSR);
-            FreqEnd = round(FreqBegin+0.0125*size(Input,1));
+            FreqEnd = round(FreqBegin+0.025*size(Input,1));
             % Src signal power
             SrcAbsSignal = abs(fft(Input));
             SrcPower = mean(SrcAbsSignal(FreqBegin:FreqEnd),'all');
@@ -92,11 +94,24 @@ classdef SignalUtils < handle
             MoveAbsSignal = abs(MoveSignal);
             MovePower = mean(MoveAbsSignal(FreqBegin:FreqEnd),'all');
             % Calc gain
-            Gain = SrcPower/MovePower;
+            ThisGain = SrcPower/MovePower;
+            if isnan(ThisGain)
+                ThisGain = 1;
+            end
+            Gain = (utils.ModGain*utils.ModCount+ThisGain)/(utils.ModCount+1);
+            if abs(utils.ModGain-ThisGain)/ThisGain > 1
+                Gain = ThisGain;
+            end
+            utils.ModGain = Gain;
+            utils.ModCount = utils.ModCount + 1;
             % Post highpass filter
             [b,a] = butter(5,DstFreq/(InputSR/2),'high');
-            % Output results
-            Output = filter(b,a,Gain.*real(ifft(MoveSignal)));
+            PostHigh = filter(b,a,Gain.*real(ifft(MoveSignal)));
+            % Post Lowpass filter
+            [b,a] = butter(7,(0.98*InputSR/2)/(InputSR/2),'low');
+            PostHigh = filter(b,a,PostHigh);
+            [b,a] = butter(1,(DstFreq-0.025*InputSR)/(InputSR/2),'low');
+            Output = filter(b,a,PostHigh);
         end
     end
     
@@ -105,6 +120,8 @@ classdef SignalUtils < handle
             utils.EdgeFreq = 0;
             utils.ChanSum = complex(zeros(utils.FFTSize*2,1));
             utils.AccCount = 0;
+            utils.ModGain = 1;
+            utils.ModCount = 0;
         end
         
         function Output = AkkoJitter(~,Input,JitLow,JitUp,DynPtc)
@@ -145,15 +162,15 @@ classdef SignalUtils < handle
             if DynPtc == true
                 AdpPower = mean(abs(ModOutput),'all');
                 SrcPower = mean(abs(MidChan),'all');
-                if AdpPower/SrcPower < 1
-                    SrcF = 1-(AdpPower/SrcPower);
-                end
+                SrcF = 1-(AdpPower/SrcPower);
             end
             % Debug
             if OnlyModSignal
                 MidChan = ModOutput;
             else
-                MidChan = ModOutput + SrcF.*MidChan;
+                if SrcF > 0
+                    MidChan = ModOutput + SrcF.*MidChan;
+                end
             end
             % Return results
             if size(Input,2) == 1
